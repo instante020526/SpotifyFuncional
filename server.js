@@ -18,7 +18,16 @@ try {
 const app = express();
 app.use(cors());
 
-// Servir archivos estáticos (HTML, CSS, etc.)
+// ✅ Cookies de YouTube
+const COOKIES_PATH = '/tmp/yt-cookies.txt';
+if (process.env.YOUTUBE_COOKIES) {
+    fs.writeFileSync(COOKIES_PATH, process.env.YOUTUBE_COOKIES);
+    console.log("🍪 Cookies de YouTube cargadas.");
+} else {
+    console.log("⚠️ Sin cookies de YouTube.");
+}
+
+// Servir archivos estáticos
 const publicPath = path.resolve(__dirname);
 app.use(express.static(publicPath));
 
@@ -26,7 +35,7 @@ app.use(express.static(publicPath));
 const DOWNLOADS_DIR = path.join(publicPath, 'temp_downloads');
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
-// Helper: ejecutar comando externo con Promise (evita bloquear el event loop)
+// Helper: ejecutar comando externo con Promise
 function execPromise(cmd) {
     return new Promise((resolve, reject) => {
         exec(cmd, { timeout: 120000 }, (error, stdout, stderr) => {
@@ -41,17 +50,15 @@ function crearZip(sourceFolder, zipPath) {
     return new Promise((resolve, reject) => {
         const output = fs.createWriteStream(zipPath);
         const archive = archiver('zip', { zlib: { level: 9 } });
-
         output.on('close', resolve);
         archive.on('error', reject);
-
         archive.pipe(output);
         archive.directory(sourceFolder, false);
         archive.finalize();
     });
 }
 
-// Ruta principal: sirve index.html
+// Ruta principal
 app.get('/', (req, res) => {
     const filePath = path.join(__dirname, 'index.html');
     res.sendFile(filePath, (err) => {
@@ -62,25 +69,20 @@ app.get('/', (req, res) => {
     });
 });
 
-// Ruta de progreso (EventSource / SSE)
+// Ruta de progreso SSE
 app.get("/playlist-progress", async (req, res) => {
     const url = req.query.url;
 
-    // Cabeceras SSE
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no'); // Importante para Railway/Nginx
-
-    // Flush inicial para que Railway no cierre la conexión
+    res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
     const sendProgress = (data) => {
         res.write(`data: ${JSON.stringify(data)}\n\n`);
-        // res.flush() si usas compression middleware
     };
 
-    // Keepalive: envía un comentario SSE cada 20s para evitar timeout
     const keepAlive = setInterval(() => {
         res.write(': keepalive\n\n');
     }, 20000);
@@ -121,9 +123,12 @@ app.get("/playlist-progress", async (req, res) => {
                 total: total
             });
 
+            // ✅ Proxy residencial para evitar bloqueo de YouTube
+            const proxyFlag = process.env.PROXY_URL ? `--proxy "${process.env.PROXY_URL}"` : '';
+            const cookiesFlag = fs.existsSync(COOKIES_PATH) ? `--cookies ${COOKIES_PATH}` : '';
             const comando = esSpotify
-                ? `yt-dlp -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancion}"`
-                : `yt-dlp -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "${cancion}"`;
+                ? `yt-dlp ${proxyFlag} ${cookiesFlag} -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancion}"`
+                : `yt-dlp ${proxyFlag} ${cookiesFlag} -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "${cancion}"`;
 
             try {
                 await execPromise(comando);
@@ -136,10 +141,8 @@ app.get("/playlist-progress", async (req, res) => {
 
         const zipName = `${folderName}.zip`;
         const zipPath = path.join(DOWNLOADS_DIR, zipName);
-
         await crearZip(folderPath, zipPath);
 
-        // Limpiar carpeta temporal
         fs.rmSync(folderPath, { recursive: true, force: true });
 
         sendProgress({ status: "Completado", file: zipName });
@@ -156,7 +159,7 @@ app.get("/playlist-progress", async (req, res) => {
 
 // Ruta para descargar ZIP
 app.get("/get-zip", (req, res) => {
-    const fileName = path.basename(req.query.file); // Seguridad: evita path traversal
+    const fileName = path.basename(req.query.file);
     const filePath = path.join(DOWNLOADS_DIR, fileName);
 
     if (!fs.existsSync(filePath)) {
