@@ -98,7 +98,7 @@ app.get("/playlist-progress", async (req, res) => {
             cancionesParaBuscar = tracks.map(t => {
                 const nombre = t.name || "Canción desconocida";
                 const artista = (t.artists && t.artists.length > 0) ? t.artists[0].name : "";
-                return `${nombre} ${artista}`.trim();
+                return artista ? `${nombre} ${artista}` : nombre;
             });
         } else {
             sendProgress({ status: "Analizando lista de YouTube..." });
