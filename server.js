@@ -144,7 +144,14 @@ app.get("/playlist-progress", async (req, res) => {
             try {
                 await execPromise(comando);
             } catch (e) {
-                console.error(`⚠️ Error descargando: ${cancion} — ${e.message}`);
+                // Si SoundCloud falla, intentar con YouTube
+                console.log(`🔄 SoundCloud falló, intentando YouTube: ${cancionLimpia}`);
+                const comandoYT = `yt-dlp ${cookiesFlag} -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancionLimpia}"`;
+                try {
+                    await execPromise(comandoYT);
+                } catch (e2) {
+                    console.error(`⚠️ Error descargando: ${cancion} — ${e2.message}`);
+                }
             }
         }
 
