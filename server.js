@@ -125,10 +125,11 @@ app.get("/playlist-progress", async (req, res) => {
 
             // ✅ Proxy residencial para evitar bloqueo de YouTube
             console.log(`🎵 Buscando: ${cancion}`);
+            const cancionLimpia = cancion.replace(/[\/\\:*?"<>|]/g, ' ').trim();
             const proxyFlag = process.env.PROXY_URL ? `--proxy "${process.env.PROXY_URL}"` : '';
             const cookiesFlag = fs.existsSync(COOKIES_PATH) ? `--cookies ${COOKIES_PATH}` : '';
             const comando = esSpotify
-                ? `yt-dlp ${proxyFlag} ${cookiesFlag} -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "scsearch1:${cancion}"`
+                ? `yt-dlp ${proxyFlag} ${cookiesFlag} -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "scsearch1:${cancionLimpia}"`
                 : `yt-dlp ${proxyFlag} ${cookiesFlag} -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "${cancion}"`;
 
             try {
