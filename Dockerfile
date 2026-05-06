@@ -6,12 +6,10 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     curl \
-    nodejs \
-    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Instalar yt-dlp (ignorar restricciones de Debian Bookworm)
-RUN pip3 install --break-system-packages yt-dlp
+RUN pip3 install --break-system-packages --upgrade yt-dlp
 
 # Directorio de trabajo
 WORKDIR /app
