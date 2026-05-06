@@ -94,7 +94,16 @@ app.get("/playlist-progress", async (req, res) => {
         if (esSpotify) {
             if (!getTracks) throw new Error("Librería Spotify no disponible en el servidor.");
             sendProgress({ status: "Analizando lista de Spotify..." });
-            const tracks = await getTracks(url);
+            let tracks = [];
+            try {
+                tracks = await getTracks(url);
+            } catch (e) {
+                const { getData } = require('spotify-url-info')(require('node-fetch'));
+                const data = await getData(url);
+                if (data && data.name) {
+                    tracks = [{ name: data.name, artists: data.artists || [] }];
+                }
+            }
             cancionesParaBuscar = tracks.map(t => {
                 const nombre = t.name || "Canción desconocida";
                 const artista = (t.artists && t.artists.length > 0) ? t.artists[0].name : "";
