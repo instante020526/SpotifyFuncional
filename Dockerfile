@@ -6,6 +6,7 @@ RUN apt-get update && apt-get install -y \
     python3 \
     python3-pip \
     curl \
+    nodejs \
     && rm -rf /var/lib/apt/lists/*
 
 # Instalar yt-dlp (ignorar restricciones de Debian Bookworm)
