@@ -1,43 +1,66 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <meta charset="UTF-8">
-    <title>Descargador de Listas Spotify</title>
-    <style>
-        body { background: #121212; color: white; font-family: sans-serif; text-align: center; padding-top: 50px; }
-        .box { border: 2px solid #1DB954; padding: 20px; display: inline-block; border-radius: 10px; }
-        input { padding: 10px; width: 300px; }
-        button { padding: 10px 20px; background: #1DB954; color: white; border: none; cursor: pointer; }
-        #status { margin-top:20px; color: #1DB954; }
-    </style>
+<meta charset="UTF-8">
+<title>Spotify Funcional PRO</title>
+
+<style>
+body {
+  background:#121212;
+  color:white;
+  font-family:sans-serif;
+  text-align:center;
+  padding-top:50px;
+}
+.box {
+  border:2px solid #1DB954;
+  padding:20px;
+  display:inline-block;
+  border-radius:10px;
+}
+input { padding:10px; width:300px; }
+button {
+  padding:10px 20px;
+  background:#1DB954;
+  border:none;
+  cursor:pointer;
+  color:white;
+}
+#status { margin-top:20px; color:#1DB954; }
+</style>
 </head>
+
 <body>
-    <div class="box">
-        <h1>Descargador Spotify</h1>
-        <input type="text" id="link" placeholder="Pega link de Spotify">
-        <button onclick="procesar()">¡PROCESAR!</button>
-        <div id="status"></div>
-    </div>
 
-    <script>
-        function procesar() {
-            const url = document.getElementById('link').value;
-            const status = document.getElementById('status');
-            if(!url) return alert("Pega un link");
-            status.innerText = "Iniciando proceso...";
+<div class="box">
+  <h1>Spotify Funcional PRO</h1>
+  <input id="link" placeholder="Pega link Spotify / YouTube">
+  <button onclick="procesar()">PROCESAR</button>
+  <div id="status"></div>
+</div>
 
-            const baseUrl = window.location.origin;
-            const ev = new EventSource(`${baseUrl}/playlist-progress?url=${encodeURIComponent(url)}`);
+<script>
+function procesar() {
+    const url = document.getElementById("link").value;
+    const status = document.getElementById("status");
 
-            ev.onmessage = (e) => {
-                const data = JSON.parse(e.data);
-                status.innerText = data.status;
-                if(data.status === "Completado") {
-                    ev.close();
-                    window.location.href = `${baseUrl}/get-zip?file=${data.file}`;
-                }
-            };
+    if (!url) return alert("Pega un link");
+
+    status.innerText = "Iniciando...";
+
+    const ev = new EventSource(`/playlist-progress?url=${encodeURIComponent(url)}`);
+
+    ev.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        status.innerText = data.status;
+
+        if (data.status === "COMPLETADO") {
+            ev.close();
+            window.location.href = `/get-zip?file=${data.file}`;
         }
-    </script>
+    };
+}
+</script>
+
 </body>
 </html>

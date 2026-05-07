@@ -7,10 +7,10 @@ const fs = require("fs");
 const app = express();
 app.use(cors());
 
-const CACHE_DIR = path.join(__dirname, "cache");
-if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR);
+const DOWNLOAD_DIR = path.join(__dirname, "temp");
+if (!fs.existsSync(DOWNLOAD_DIR)) fs.mkdirSync(DOWNLOAD_DIR);
 
-// Ejecutar comandos
+// -------------------- RUN --------------------
 function run(cmd) {
   return new Promise((resolve, reject) => {
     exec(cmd, { timeout: 120000 }, (err, stdout, stderr) => {
@@ -20,123 +20,108 @@ function run(cmd) {
   });
 }
 
-/*
-========================================================
- 🔥 STREAM DIRECTO (NO DESCARGA MP3)
-========================================================
-*/
+// -------------------- FRONTEND --------------------
+app.use(express.static(__dirname));
 
-app.get("/stream", async (req, res) => {
-  const query = req.query.q;
-  if (!query) return res.status(400).send("Falta query");
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "index.html"));
+});
+
+// -------------------- SSE PROGRESS --------------------
+app.get("/playlist-progress", async (req, res) => {
+  const url = req.query.url;
+
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Connection", "keep-alive");
+
+  const send = (data) => {
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
 
   try {
-    // 1. Buscar URL directa de audio (yt-dlp modo PRO)
-    const cmd = `
-      yt-dlp -f bestaudio -g "ytsearch1:${query}"
-    `;
+    send({ status: "Analizando lista..." });
 
-    const url = await run(cmd);
+    let songs = [];
 
-    if (!url) throw new Error("No se encontró stream");
-
-    // Redirigir al audio directo
-    res.redirect(url);
-
-  } catch (err) {
-    console.log("YT falló, intentando fallback...");
-
-    try {
-      // 2. fallback simple (YouTube search normal)
-      const fallback = await run(`
-        yt-dlp -f bestaudio -g "${query}"
-      `);
-
-      return res.redirect(fallback);
-
-    } catch (err2) {
-      return res.status(500).send("No disponible");
+    // Spotify o YouTube
+    if (url.includes("spotify")) {
+      const cmd = `yt-dlp "ytsearch10:${url}" --print "%(title)s"`;
+      const output = await run(cmd);
+      songs = output.split("\n").filter(Boolean);
+    } else {
+      const cmd = `yt-dlp --flat-playlist --print "%(title)s" "${url}"`;
+      const output = await run(cmd);
+      songs = output.split("\n").filter(Boolean);
     }
+
+    const folder = `list-${Date.now()}`;
+    const folderPath = path.join(DOWNLOAD_DIR, folder);
+    fs.mkdirSync(folderPath);
+
+    for (let i = 0; i < songs.length; i++) {
+      const song = songs[i];
+
+      send({
+        status: `Descargando ${i + 1}/${songs.length}: ${song}`
+      });
+
+      const clean = song.replace(/[^\w\s]/gi, "");
+
+      const cmd = `
+        yt-dlp "ytsearch1:${clean}" \
+        -x \
+        --audio-format mp3 \
+        --no-playlist \
+        -o "${folderPath}/%(title)s.%(ext)s"
+      `;
+
+      try {
+        await run(cmd);
+      } catch (e) {
+        console.log("fallo:", song);
+      }
+    }
+
+    send({ status: "COMPLETADO", file: folder });
+
+    res.end();
+
+  } catch (err) {
+    send({ status: "ERROR: " + err });
+    res.end();
   }
 });
 
-/*
-========================================================
- 🔥 DESCARGA OPCIONAL (ZIP SIMPLE)
-========================================================
-*/
+// -------------------- ZIP DOWNLOAD --------------------
+app.get("/get-zip", (req, res) => {
+  const file = req.query.file;
+  const folderPath = path.join(DOWNLOAD_DIR, file);
 
-app.get("/download", async (req, res) => {
-  const query = req.query.q;
-  if (!query) return res.status(400).send("Falta query");
+  if (!fs.existsSync(folderPath)) {
+    return res.status(404).send("No existe");
+  }
 
-  const folder = path.join(CACHE_DIR, Date.now().toString());
-  fs.mkdirSync(folder);
+  const zipPath = folderPath + ".zip";
 
-  try {
-    const cmd = `
-      yt-dlp "ytsearch1:${query}" \
-      -x \
-      --audio-format mp3 \
-      --no-playlist \
-      --format "bestaudio[ext=m4a]/bestaudio" \
-      --extractor-args "youtube:player_client=android" \
-      -o "${folder}/%(title)s.%(ext)s"
-    `;
+  const cmd = `zip -r "${zipPath}" "${folderPath}"`;
 
-    await run(cmd);
+  exec(cmd, (err) => {
+    if (err) return res.send("Error zip");
 
-    return res.json({
-      ok: true,
-      message: "Descarga completa",
-      folder
+    res.download(zipPath, () => {
+      fs.rmSync(folderPath, { recursive: true, force: true });
+      fs.unlinkSync(zipPath);
     });
-
-  } catch (err) {
-    return res.status(500).json({ error: "fallo descarga" });
-  }
+  });
 });
 
-/*
-========================================================
- 🔥 SEARCH SIMPLE (METADATA)
-========================================================
-*/
-
-app.get("/search", async (req, res) => {
-  const query = req.query.q;
-  if (!query) return res.json([]);
-
-  try {
-    const cmd = `yt-dlp "ytsearch5:${query}" --print "%(title)s"`;
-    const result = await run(cmd);
-
-    const list = result.split("\n").filter(Boolean);
-
-    res.json(list.map(t => ({ title: t })));
-
-  } catch (err) {
-    res.status(500).json({ error: "search failed" });
-  }
-});
-
-/*
-========================================================
- 🔥 HEALTHCHECK
-========================================================
-*/
-
+// -------------------- HEALTH --------------------
 app.get("/ping", (req, res) => {
   res.send("ok");
 });
 
-/*
-========================================================
- 🚀 START SERVER (RAILWAY)
-========================================================
-*/
-
+// -------------------- START --------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
-  console.log("🚀 Server listo en puerto", PORT);
+  console.log("🚀 Spotify Funcional PRO en puerto", PORT);
 });
