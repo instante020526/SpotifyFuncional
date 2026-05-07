@@ -1,204 +1,199 @@
 const express = require("express");
-const cors = require("cors");
+const yts = require("yt-search");
 const { exec } = require("child_process");
+const cors = require("cors");
 const path = require("path");
 const fs = require("fs");
 const archiver = require("archiver");
 
+// Spotify
+let getTracks;
+try {
+    const fetch = require('node-fetch');
+    getTracks = require('spotify-url-info')(fetch).getTracks;
+} catch (e) {
+    console.log("⚠️ Error cargando librerías de Spotify.");
+}
+
 const app = express();
 app.use(cors());
 
-/*
-========================================================
-📁 DIRECTORIOS
-========================================================
-*/
-const BASE_DIR = __dirname;
-const DOWNLOAD_DIR = path.join(BASE_DIR, "temp_downloads");
-
-if (!fs.existsSync(DOWNLOAD_DIR)) {
-    fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
+// Cookies de YouTube
+const COOKIES_PATH = '/tmp/yt-cookies.txt';
+if (process.env.YOUTUBE_COOKIES) {
+    fs.writeFileSync(COOKIES_PATH, process.env.YOUTUBE_COOKIES);
+    console.log("🍪 Cookies de YouTube cargadas.");
+} else {
+    console.log("⚠️ Sin cookies de YouTube.");
 }
 
-/*
-========================================================
-⚙️ EXEC PROMISE
-========================================================
-*/
-function run(cmd) {
+const publicPath = path.resolve(__dirname);
+app.use(express.static(publicPath));
+
+const DOWNLOADS_DIR = path.join(publicPath, 'temp_downloads');
+if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
+
+function execPromise(cmd) {
     return new Promise((resolve, reject) => {
-        exec(cmd, { timeout: 180000 }, (err, stdout, stderr) => {
-            if (err) return reject(stderr || err.message);
-            resolve(stdout.trim());
+        exec(cmd, { timeout: 120000 }, (error, stdout, stderr) => {
+            if (error) reject(error);
+            else resolve(stdout);
         });
     });
 }
 
-/*
-========================================================
-📦 ZIP SEGURO (NO VACÍO)
-========================================================
-*/
-function createZip(folder, zipPath) {
+function crearZip(sourceFolder, zipPath) {
     return new Promise((resolve, reject) => {
-        const files = fs.readdirSync(folder);
-
-        if (!files.length) {
-            return reject(new Error("No hay archivos descargados"));
-        }
-
         const output = fs.createWriteStream(zipPath);
-        const archive = archiver("zip", { zlib: { level: 9 } });
-
-        output.on("close", resolve);
-        archive.on("error", reject);
-
+        const archive = archiver('zip', { zlib: { level: 9 } });
+        output.on('close', resolve);
+        archive.on('error', reject);
         archive.pipe(output);
-        archive.directory(folder, false);
+        archive.directory(sourceFolder, false);
         archive.finalize();
     });
 }
 
-/*
-========================================================
-🏠 HOME (FIX “Cannot GET /”)
-========================================================
-*/
-app.get("/", (req, res) => {
-    res.sendFile(path.join(BASE_DIR, "index.html"));
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-/*
-========================================================
-🔥 STREAM DIRECTO (MODO PRO)
-========================================================
-*/
-app.get("/stream", async (req, res) => {
-    const q = req.query.q;
-    if (!q) return res.status(400).send("Falta query");
+app.get("/playlist-progress", async (req, res) => {
+    const url = req.query.url;
+
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    const sendProgress = (data) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    const keepAlive = setInterval(() => {
+        res.write(': keepalive\n\n');
+    }, 20000);
 
     try {
-        const url = await run(`
-            yt-dlp -f bestaudio -g "ytsearch5:${q}" | head -n 1
-        `);
+        let cancionesParaBuscar = [];
+        const esSpotify = url.includes('spotify.com');
 
-        if (!url) throw new Error("No stream");
-
-        return res.redirect(url);
-
-    } catch (e) {
-        return res.status(500).send("No disponible");
-    }
-});
-
-/*
-========================================================
-⬇️ DESCARGA PRO ROBUSTA
-========================================================
-*/
-app.get("/download", async (req, res) => {
-    const q = req.query.q;
-    if (!q) return res.status(400).send("Falta query");
-
-    const folder = path.join(DOWNLOAD_DIR, Date.now().toString());
-    fs.mkdirSync(folder, { recursive: true });
-
-    const cmd = `
-yt-dlp "ytsearch5:${q}" \
--f "bestaudio[ext=m4a]/bestaudio" \
---extractor-args "youtube:player_client=android" \
---no-check-certificate \
--x --audio-format mp3 \
---no-playlist \
--o "${folder}/%(title)s.%(ext)s"
-`;
-
-    try {
-        await run(cmd);
-
-        const files = fs.readdirSync(folder);
-
-        if (!files.length) {
-            fs.rmSync(folder, { recursive: true, force: true });
-            return res.status(500).json({ error: "No se descargó nada" });
+        if (esSpotify) {
+            if (!getTracks) throw new Error("Librería Spotify no disponible.");
+            sendProgress({ status: "Analizando lista de Spotify..." });
+            let tracks = [];
+            try {
+                tracks = await getTracks(url);
+            } catch (e) {
+                const { getData } = require('spotify-url-info')(require('node-fetch'));
+                const data = await getData(url);
+                if (data && data.name) {
+                    tracks = [{ name: data.name, artists: data.artists || [] }];
+                }
+            }
+            cancionesParaBuscar = tracks.map(t => {
+                const nombre = t.name || "Canción desconocida";
+                const artista = (t.artists && t.artists.length > 0) ? t.artists[0].name : "";
+                return artista ? `${nombre} ${artista}` : nombre;
+            });
+        } else {
+            sendProgress({ status: "Analizando lista de YouTube..." });
+            const rawIds = await execPromise(`yt-dlp --get-id --flat-playlist "${url}"`);
+            cancionesParaBuscar = rawIds.trim().split('\n')
+                .filter(Boolean)
+                .map(id => `https://www.youtube.com/watch?v=${id.trim()}`);
         }
 
-        return res.json({
-            ok: true,
-            folder,
-            files
-        });
+        const total = cancionesParaBuscar.length;
+        if (total === 0) throw new Error("No se encontraron canciones.");
 
-    } catch (e) {
-        return res.status(500).json({ error: "fallo descarga", details: e.toString() });
+        const folderName = `lista-${Date.now()}`;
+        const folderPath = path.join(DOWNLOADS_DIR, folderName);
+        fs.mkdirSync(folderPath, { recursive: true });
+
+        for (let i = 0; i < total; i++) {
+            const cancion = cancionesParaBuscar[i];
+            sendProgress({
+                status: `Descargando ${i + 1} de ${total}: ${cancion.substring(0, 40)}...`,
+                current: i + 1,
+                total: total
+            });
+
+            console.log(`🎵 Buscando: ${cancion}`);
+            const cancionLimpia = cancion.replace(/[\/\\:*?"<>|]/g, ' ').trim();
+            const proxyFlag = process.env.PROXY_URL ? `--proxy "${process.env.PROXY_URL}"` : '';
+            const cookiesFlag = fs.existsSync(COOKIES_PATH) ? `--cookies ${COOKIES_PATH}` : '';
+
+            const comando = esSpotify
+                ? `yt-dlp ${proxyFlag} ${cookiesFlag} -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "scsearch1:${cancionLimpia}"`
+                : `yt-dlp ${proxyFlag} ${cookiesFlag} -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "${cancion}"`;
+
+            try {
+                await execPromise(comando);
+            } catch (e) {
+                // SoundCloud falló, intentar YouTube
+                console.log(`🔄 SoundCloud falló, intentando YouTube: ${cancionLimpia}`);
+                const comandoYT = `yt-dlp ${cookiesFlag} -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancionLimpia}"`;
+                try {
+                    await execPromise(comandoYT);
+                } catch (e2) {
+                    console.error(`⚠️ Error descargando: ${cancion} — ${e2.message}`);
+                }
+            }
+        }
+
+        sendProgress({ status: "Comprimiendo archivos en un ZIP..." });
+
+        const zipName = `${folderName}.zip`;
+        const zipPath = path.join(DOWNLOADS_DIR, zipName);
+        await crearZip(folderPath, zipPath);
+
+        fs.rmSync(folderPath, { recursive: true, force: true });
+
+        sendProgress({ status: "Completado", file: zipName });
+        clearInterval(keepAlive);
+        res.end();
+
+    } catch (error) {
+        console.error("ERROR:", error.message);
+        sendProgress({ status: "Error: " + error.message });
+        clearInterval(keepAlive);
+        res.end();
     }
 });
 
-/*
-========================================================
-📦 ZIP DESCARGA FINAL (FIX 22 bytes)
-========================================================
-*/
-app.get("/get-zip", async (req, res) => {
-    const folder = req.query.file;
-    const folderPath = path.join(DOWNLOAD_DIR, folder);
+app.get("/get-zip", (req, res) => {
+    const fileName = path.basename(req.query.file);
+    const filePath = path.join(DOWNLOADS_DIR, fileName);
 
-    if (!fs.existsSync(folderPath)) {
-        return res.status(404).send("No existe");
+    if (!fs.existsSync(filePath)) {
+        return res.status(404).send("Archivo no encontrado.");
     }
 
-    const zipPath = folderPath + ".zip";
-
-    try {
-        await createZip(folderPath, zipPath);
-
-        res.download(zipPath, () => {
-            fs.rmSync(folderPath, { recursive: true, force: true });
-            fs.unlinkSync(zipPath);
-        });
-
-    } catch (e) {
-        res.status(500).send("Error zip: " + e.message);
-    }
+    res.download(filePath, (err) => {
+        if (!err && fs.existsSync(filePath)) {
+            fs.unlinkSync(filePath);
+        }
+    });
 });
 
-/*
-========================================================
-🔎 SEARCH PRO
-========================================================
-*/
 app.get("/search", async (req, res) => {
-    const q = req.query.q;
-    if (!q) return res.json([]);
-
     try {
-        const result = await run(`yt-dlp "ytsearch5:${q}" --print "%(title)s"`);
-
-        const list = result.split("\n").filter(Boolean);
-
-        res.json(list.map(t => ({ title: t })));
-
+        const result = await yts(req.query.q || "");
+        res.json(result.videos.slice(0, 5).map(v => ({
+            title: v.title,
+            url: v.url,
+            thumbnail: v.thumbnail
+        })));
     } catch (e) {
-        res.status(500).json({ error: "search failed" });
+        res.status(500).json({ error: "Fallo en la búsqueda" });
     }
 });
 
-/*
-========================================================
-❤️ HEALTHCHECK
-========================================================
-*/
-app.get("/ping", (req, res) => {
-    res.send("ok");
-});
+app.get('/ping', (req, res) => res.send('pong'));
 
-/*
-========================================================
-🚀 START RAILWAY
-========================================================
-*/
 const PORT = process.env.PORT || 3000;
-
-app.listen(PORT, "0.0.0.0", () => {
-    console.log("🚀 PRO SERVER RUNNING ON", PORT);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log("✅ SERVIDOR INICIADO EN PUERTO", PORT);
 });
