@@ -93,6 +93,8 @@ app.get("/playlist-progress", async (req, res) => {
 });
 
 // -------------------- ZIP DOWNLOAD --------------------
+const archiver = require("archiver");
+
 app.get("/get-zip", (req, res) => {
   const file = req.query.file;
   const folderPath = path.join(DOWNLOAD_DIR, file);
@@ -101,18 +103,32 @@ app.get("/get-zip", (req, res) => {
     return res.status(404).send("No existe");
   }
 
-  const zipPath = folderPath + ".zip";
+  const zipPath = path.join(DOWNLOAD_DIR, file + ".zip");
 
-  const cmd = `zip -r "${zipPath}" "${folderPath}"`;
+  const output = fs.createWriteStream(zipPath);
+  const archive = archiver("zip", {
+    zlib: { level: 9 }
+  });
 
-  exec(cmd, (err) => {
-    if (err) return res.send("Error zip");
-
+  output.on("close", () => {
     res.download(zipPath, () => {
-      fs.rmSync(folderPath, { recursive: true, force: true });
-      fs.unlinkSync(zipPath);
+      try {
+        fs.rmSync(folderPath, { recursive: true, force: true });
+        fs.unlinkSync(zipPath);
+      } catch (e) {
+        console.log("cleanup error:", e);
+      }
     });
   });
+
+  archive.on("error", (err) => {
+    console.error("ZIP ERROR:", err);
+    res.status(500).send("Error creando ZIP");
+  });
+
+  archive.pipe(output);
+  archive.directory(folderPath, false);
+  archive.finalize();
 });
 
 // -------------------- HEALTH --------------------
