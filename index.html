@@ -2,63 +2,35 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Spotify Funcional PRO</title>
-
-<style>
-body {
-  background:#121212;
-  color:white;
-  font-family:sans-serif;
-  text-align:center;
-  padding-top:50px;
-}
-.box {
-  border:2px solid #1DB954;
-  padding:20px;
-  display:inline-block;
-  border-radius:10px;
-}
-input { padding:10px; width:300px; }
-button {
-  padding:10px 20px;
-  background:#1DB954;
-  border:none;
-  cursor:pointer;
-  color:white;
-}
-#status { margin-top:20px; color:#1DB954; }
-</style>
+<title>Spotify Downloader PRO</title>
 </head>
+<body style="background:#111;color:white;text-align:center;padding-top:60px">
 
-<body>
+<h2>Spotify / YouTube Downloader PRO</h2>
 
-<div class="box">
-  <h1>Spotify Funcional PRO</h1>
-  <input id="link" placeholder="Pega link Spotify / YouTube">
-  <button onclick="procesar()">PROCESAR</button>
-  <div id="status"></div>
-</div>
+<input id="q" style="padding:10px;width:300px">
+<button onclick="go()">Descargar</button>
+
+<p id="st"></p>
 
 <script>
-function procesar() {
-    const url = document.getElementById("link").value;
-    const status = document.getElementById("status");
+async function go(){
+    const q = document.getElementById("q").value;
+    const st = document.getElementById("st");
 
-    if (!url) return alert("Pega un link");
+    st.innerText = "Descargando...";
 
-    status.innerText = "Iniciando...";
+    const r = await fetch(`/download?q=${encodeURIComponent(q)}`);
+    const d = await r.json();
 
-    const ev = new EventSource(`/playlist-progress?url=${encodeURIComponent(url)}`);
+    if(!d.ok){
+        st.innerText = "Error";
+        return;
+    }
 
-    ev.onmessage = (e) => {
-        const data = JSON.parse(e.data);
-        status.innerText = data.status;
+    st.innerText = "Generando ZIP...";
 
-        if (data.status === "COMPLETADO") {
-            ev.close();
-            window.location.href = `/get-zip?file=${data.file}`;
-        }
-    };
+    window.location.href = `/get-zip?file=${d.folder.split("/").pop()}`;
 }
 </script>
 
