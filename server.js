@@ -1,199 +1,142 @@
 const express = require("express");
-const yts = require("yt-search");
-const { exec } = require("child_process");
 const cors = require("cors");
+const { exec } = require("child_process");
 const path = require("path");
 const fs = require("fs");
-const archiver = require("archiver");
-
-let getTracks;
-try {
-    const fetch = require("node-fetch");
-    getTracks = require("spotify-url-info")(fetch).getTracks;
-} catch (e) {
-    console.log("⚠️ Spotify library no disponible. Ejecuta: npm install spotify-url-info node-fetch@2");
-}
 
 const app = express();
 app.use(cors());
 
-const publicPath = path.resolve(__dirname);
-app.use(express.static(publicPath));
+const CACHE_DIR = path.join(__dirname, "cache");
+if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR);
 
-const DOWNLOADS_DIR = path.join(publicPath, "temp_downloads");
-if (!fs.existsSync(DOWNLOADS_DIR)) {
-    fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
-}
-
-function execPromise(cmd) {
-    return new Promise((resolve, reject) => {
-        exec(cmd, { timeout: 180000 }, (error, stdout, stderr) => {
-            if (error) return reject(stderr || error.message);
-            resolve(stdout);
-        });
+// Ejecutar comandos
+function run(cmd) {
+  return new Promise((resolve, reject) => {
+    exec(cmd, { timeout: 120000 }, (err, stdout, stderr) => {
+      if (err) return reject(stderr || err.message);
+      resolve(stdout.trim());
     });
+  });
 }
 
-function crearZip(sourceFolder, zipPath) {
-    return new Promise((resolve, reject) => {
-        const output = fs.createWriteStream(zipPath);
-        const archive = archiver("zip", { zlib: { level: 9 } });
+/*
+========================================================
+ 🔥 STREAM DIRECTO (NO DESCARGA MP3)
+========================================================
+*/
 
-        output.on("close", resolve);
-        archive.on("error", reject);
+app.get("/stream", async (req, res) => {
+  const query = req.query.q;
+  if (!query) return res.status(400).send("Falta query");
 
-        archive.pipe(output);
-        archive.directory(sourceFolder, false);
-        archive.finalize();
-    });
-}
+  try {
+    // 1. Buscar URL directa de audio (yt-dlp modo PRO)
+    const cmd = `
+      yt-dlp -f bestaudio -g "ytsearch1:${query}"
+    `;
 
-app.get("/", (req, res) => {
-    res.sendFile(path.join(__dirname, "index.html"));
-});
+    const url = await run(cmd);
 
-app.get("/playlist-progress", async (req, res) => {
-    const url = req.query.url;
+    if (!url) throw new Error("No se encontró stream");
 
-    res.setHeader("Content-Type", "text/event-stream");
-    res.setHeader("Cache-Control", "no-cache");
-    res.setHeader("Connection", "keep-alive");
-    res.flushHeaders();
+    // Redirigir al audio directo
+    res.redirect(url);
 
-    const send = (data) => {
-        res.write(`data: ${JSON.stringify(data)}\n\n`);
-    };
-
-    const keepAlive = setInterval(() => {
-        res.write(": keepalive\n\n");
-    }, 20000);
+  } catch (err) {
+    console.log("YT falló, intentando fallback...");
 
     try {
-        let canciones = [];
-        const esSpotify = url.includes("spotify.com");
+      // 2. fallback simple (YouTube search normal)
+      const fallback = await run(`
+        yt-dlp -f bestaudio -g "${query}"
+      `);
 
-        send({ status: "Analizando enlace..." });
+      return res.redirect(fallback);
 
-        if (esSpotify) {
-            if (!getTracks) throw new Error("Spotify no disponible");
-
-            const tracks = await getTracks(url);
-
-            canciones = tracks.map(t => {
-                const name = t.name || "Unknown";
-                const artist = t.artists?.[0]?.name || "";
-                return artist ? `${name} ${artist}` : name;
-            });
-
-        } else {
-            const raw = await execPromise(`yt-dlp --flat-playlist --get-title "${url}"`);
-            canciones = raw.split("\n").filter(Boolean);
-        }
-
-        const total = canciones.length;
-        const folderName = `lista-${Date.now()}`;
-        const folderPath = path.join(DOWNLOADS_DIR, folderName);
-
-        fs.mkdirSync(folderPath, { recursive: true });
-
-        for (let i = 0; i < total; i++) {
-            const song = canciones[i];
-            const clean = song.replace(/[\/\\:*?"<>|]/g, "").trim();
-
-            send({
-                status: `Descargando ${i + 1}/${total}: ${song}`,
-                current: i + 1,
-                total
-            });
-
-            const baseCmd = `
-yt-dlp "ytsearch1:${clean}" \
--x \
---audio-format mp3 \
---no-playlist \
---extractor-args "youtube:player_client=android" \
---format "bestaudio[ext=m4a]/bestaudio" \
--o "${folderPath}/%(title)s.%(ext)s"
-`;
-
-            try {
-                await execPromise(baseCmd);
-            } catch (err) {
-                console.log("Fallback YouTube directo...");
-
-                const fallbackCmd = `
-yt-dlp "${clean}" \
--x \
---audio-format mp3 \
---no-playlist \
---extractor-args "youtube:player_client=android" \
--o "${folderPath}/%(title)s.%(ext)s"
-`;
-
-                try {
-                    await execPromise(fallbackCmd);
-                } catch (err2) {
-                    console.log("❌ Error:", song);
-                }
-            }
-        }
-
-        send({ status: "Comprimiendo ZIP..." });
-
-        const zipName = `${folderName}.zip`;
-        const zipPath = path.join(DOWNLOADS_DIR, zipName);
-
-        await crearZip(folderPath, zipPath);
-        fs.rmSync(folderPath, { recursive: true, force: true });
-
-        clearInterval(keepAlive);
-
-        send({
-            status: "Completado",
-            file: zipName
-        });
-
-        res.end();
-
-    } catch (err) {
-        console.error("ERROR:", err);
-        clearInterval(keepAlive);
-
-        send({
-            status: "Error: " + err.toString()
-        });
-
-        res.end();
+    } catch (err2) {
+      return res.status(500).send("No disponible");
     }
+  }
 });
 
-app.get("/get-zip", (req, res) => {
-    const file = path.basename(req.query.file);
-    const filePath = path.join(DOWNLOADS_DIR, file);
+/*
+========================================================
+ 🔥 DESCARGA OPCIONAL (ZIP SIMPLE)
+========================================================
+*/
 
-    if (!fs.existsSync(filePath)) {
-        return res.status(404).send("Archivo no encontrado");
-    }
+app.get("/download", async (req, res) => {
+  const query = req.query.q;
+  if (!query) return res.status(400).send("Falta query");
 
-    res.download(filePath, () => {
-        fs.unlinkSync(filePath);
+  const folder = path.join(CACHE_DIR, Date.now().toString());
+  fs.mkdirSync(folder);
+
+  try {
+    const cmd = `
+      yt-dlp "ytsearch1:${query}" \
+      -x \
+      --audio-format mp3 \
+      --no-playlist \
+      --format "bestaudio[ext=m4a]/bestaudio" \
+      --extractor-args "youtube:player_client=android" \
+      -o "${folder}/%(title)s.%(ext)s"
+    `;
+
+    await run(cmd);
+
+    return res.json({
+      ok: true,
+      message: "Descarga completa",
+      folder
     });
+
+  } catch (err) {
+    return res.status(500).json({ error: "fallo descarga" });
+  }
 });
+
+/*
+========================================================
+ 🔥 SEARCH SIMPLE (METADATA)
+========================================================
+*/
 
 app.get("/search", async (req, res) => {
-    try {
-        const r = await yts(req.query.q || "");
-        res.json(r.videos.slice(0, 5));
-    } catch (e) {
-        res.status(500).json({ error: "search failed" });
-    }
+  const query = req.query.q;
+  if (!query) return res.json([]);
+
+  try {
+    const cmd = `yt-dlp "ytsearch5:${query}" --print "%(title)s"`;
+    const result = await run(cmd);
+
+    const list = result.split("\n").filter(Boolean);
+
+    res.json(list.map(t => ({ title: t })));
+
+  } catch (err) {
+    res.status(500).json({ error: "search failed" });
+  }
 });
 
+/*
+========================================================
+ 🔥 HEALTHCHECK
+========================================================
+*/
+
 app.get("/ping", (req, res) => {
-    res.send("ok");
+  res.send("ok");
 });
+
+/*
+========================================================
+ 🚀 START SERVER (RAILWAY)
+========================================================
+*/
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, "0.0.0.0", () => {
-    console.log("🚀 Server running on port", PORT);
+  console.log("🚀 Server listo en puerto", PORT);
 });

@@ -1,33 +1,48 @@
 FROM node:20-slim
 
-# Instalar dependencias del sistema
+# ================================
+# SISTEMA BASE
+# ================================
 RUN apt-get update && apt-get install -y \
     ffmpeg \
     python3 \
     python3-pip \
     curl \
-    nodejs \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
-# Instalar yt-dlp (ignorar restricciones de Debian Bookworm)
-RUN pip3 install --break-system-packages --upgrade yt-dlp
+# ================================
+# yt-dlp (VERSIÓN ESTABLE)
+# ================================
+RUN pip3 install --no-cache-dir --break-system-packages -U yt-dlp
 
-# Directorio de trabajo
+# ================================
+# WORKDIR
+# ================================
 WORKDIR /app
 
-# Copiar dependencias primero (aprovecha cache de Docker)
+# ================================
+# DEPENDENCIAS NODE
+# ================================
 COPY package*.json ./
 RUN npm install --production
 
-# Copiar el resto del código
+# ================================
+# CÓDIGO
+# ================================
 COPY . .
 
-# Crear carpeta de descargas temporales
-RUN mkdir -p temp_downloads
+# ================================
+# TEMP DIR
+# ================================
+RUN mkdir -p temp_downloads cache
 
-# Railway asigna el puerto dinámicamente — no usar EXPOSE fijo
-# EXPOSE se documenta sólo como referencia
+# ================================
+# PORT (RAILWAY)
+# ================================
 EXPOSE 3000
 
-# Comando de inicio
+# ================================
+# START
+# ================================
 CMD ["node", "server.js"]
