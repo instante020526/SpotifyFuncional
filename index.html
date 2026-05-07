@@ -1,9 +1,10 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
 <meta charset="UTF-8">
 <title>Spotify Downloader PRO</title>
 </head>
+
 <body style="background:#111;color:white;text-align:center;padding-top:60px">
 
 <h2>Spotify / YouTube Downloader PRO</h2>
@@ -15,22 +16,37 @@
 
 <script>
 async function go(){
-    const q = document.getElementById("q").value;
+    const q = document.getElementById("q").value.trim();
     const st = document.getElementById("st");
 
-    st.innerText = "Descargando...";
-
-    const r = await fetch(`/download?q=${encodeURIComponent(q)}`);
-    const d = await r.json();
-
-    if(!d.ok){
-        st.innerText = "Error";
+    if(!q){
+        st.innerText = "Escribe algo";
         return;
     }
 
-    st.innerText = "Generando ZIP...";
+    try {
+        st.innerText = "Descargando...";
 
-    window.location.href = `/get-zip?file=${d.folder.split("/").pop()}`;
+        const r = await fetch(`/download?q=${encodeURIComponent(q)}`);
+
+        if(!r.ok){
+            throw new Error("Backend error " + r.status);
+        }
+
+        const d = await r.json();
+
+        if(!d.folder){
+            throw new Error("No folder returned");
+        }
+
+        st.innerText = "Generando ZIP...";
+
+        window.location.href = `/get-zip?file=${d.folder.split("/").pop()}`;
+
+    } catch (err) {
+        console.log(err);
+        st.innerText = "Error: " + err.message;
+    }
 }
 </script>
 
