@@ -134,7 +134,7 @@ app.get("/playlist-progress", async (req, res) => {
             } catch (e) {
                 // SoundCloud falló, intentar YouTube
                 console.log(`🔄 SoundCloud falló, intentando YouTube: ${cancionLimpia}`);
-                const comandoYT = `yt-dlp ${cookiesFlag} --extractor-args "youtube:player_client=android" -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancionLimpia}"`;
+                const comandoYT = `yt-dlp ${cookiesFlag} --extractor-args "youtube:player_client=tv_embedded" -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancionLimpia}"`;
                 try {
                     await execPromise(comandoYT);
                 } catch (e2) {
