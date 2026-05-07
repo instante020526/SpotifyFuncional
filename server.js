@@ -8,20 +8,17 @@ const archiver = require("archiver");
 
 // Spotify
 let getTracks;
-let getData;
 try {
     const fetch = require('node-fetch');
-    const spotifyUrlInfo = require('spotify-url-info')(fetch);
-    getTracks = spotifyUrlInfo.getTracks;
-    getData = spotifyUrlInfo.getData;
+    getTracks = require('spotify-url-info')(fetch).getTracks;
 } catch (e) {
-    console.log("⚠️ Error cargando librerías de Spotify.");
+    console.log("⚠️ Error cargando librerías de Spotify. Ejecuta: npm install spotify-url-info node-fetch@2");
 }
 
 const app = express();
 app.use(cors());
 
-// Servir archivos estáticos
+// Servir archivos estáticos (HTML, CSS, etc.)
 const publicPath = path.resolve(__dirname);
 app.use(express.static(publicPath));
 
@@ -29,6 +26,7 @@ app.use(express.static(publicPath));
 const DOWNLOADS_DIR = path.join(publicPath, 'temp_downloads');
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
+// Helper: ejecutar comando externo con Promise (evita bloquear el event loop)
 function execPromise(cmd) {
     return new Promise((resolve, reject) => {
         exec(cmd, { timeout: 120000 }, (error, stdout, stderr) => {
@@ -38,35 +36,51 @@ function execPromise(cmd) {
     });
 }
 
+// Helper: crear ZIP con Promise
 function crearZip(sourceFolder, zipPath) {
     return new Promise((resolve, reject) => {
         const output = fs.createWriteStream(zipPath);
         const archive = archiver('zip', { zlib: { level: 9 } });
+
         output.on('close', resolve);
         archive.on('error', reject);
+
         archive.pipe(output);
         archive.directory(sourceFolder, false);
         archive.finalize();
     });
 }
 
+// Ruta principal: sirve index.html
 app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'index.html'));
+    const filePath = path.join(__dirname, 'index.html');
+    res.sendFile(filePath, (err) => {
+        if (err) {
+            console.error('Error al enviar index.html:', err);
+            res.status(500).send('No se pudo cargar la página');
+        }
+    });
 });
 
+// Ruta de progreso (EventSource / SSE)
 app.get("/playlist-progress", async (req, res) => {
     const url = req.query.url;
 
+    // Cabeceras SSE
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('X-Accel-Buffering', 'no'); // Importante para Railway/Nginx
+
+    // Flush inicial para que Railway no cierre la conexión
     res.flushHeaders();
 
     const sendProgress = (data) => {
         res.write(`data: ${JSON.stringify(data)}\n\n`);
+        // res.flush() si usas compression middleware
     };
 
+    // Keepalive: envía un comentario SSE cada 20s para evitar timeout
     const keepAlive = setInterval(() => {
         res.write(': keepalive\n\n');
     }, 20000);
@@ -74,37 +88,16 @@ app.get("/playlist-progress", async (req, res) => {
     try {
         let cancionesParaBuscar = [];
         const esSpotify = url.includes('spotify.com');
-        const esTrack = url.includes('/track/');
 
         if (esSpotify) {
-            if (!getTracks) throw new Error("Librería Spotify no disponible.");
-            sendProgress({ status: "Analizando Spotify..." });
-
-            if (esTrack) {
-                // Track individual
-                const data = await getData(url);
-                if (data && data.name) {
-                    const nombre = data.name;
-                    const artista = (data.artists && data.artists.length > 0) ? data.artists[0].name : "";
-                    cancionesParaBuscar = [artista ? `${nombre} ${artista}` : nombre];
-                }
-            } else {
-                // Playlist o álbum
-                let tracks = [];
-                try {
-                    tracks = await getTracks(url);
-                } catch (e) {
-                    const data = await getData(url);
-                    if (data && data.name) {
-                        tracks = [{ name: data.name, artists: data.artists || [] }];
-                    }
-                }
-                cancionesParaBuscar = tracks.map(t => {
-                    const nombre = t.name || "Canción desconocida";
-                    const artista = (t.artists && t.artists.length > 0) ? t.artists[0].name : "";
-                    return artista ? `${nombre} ${artista}` : nombre;
-                });
-            }
+            if (!getTracks) throw new Error("Librería Spotify no disponible en el servidor.");
+            sendProgress({ status: "Analizando lista de Spotify..." });
+            const tracks = await getTracks(url);
+            cancionesParaBuscar = tracks.map(t => {
+                const nombre = t.name || "Canción desconocida";
+                const artista = (t.artists && t.artists.length > 0) ? t.artists[0].name : "";
+                return `${nombre} ${artista}`.trim();
+            });
         } else {
             sendProgress({ status: "Analizando lista de YouTube..." });
             const rawIds = await execPromise(`yt-dlp --get-id --flat-playlist "${url}"`);
@@ -114,7 +107,7 @@ app.get("/playlist-progress", async (req, res) => {
         }
 
         const total = cancionesParaBuscar.length;
-        if (total === 0) throw new Error("No se encontraron canciones.");
+        if (total === 0) throw new Error("No se encontraron canciones en el enlace.");
 
         const folderName = `lista-${Date.now()}`;
         const folderPath = path.join(DOWNLOADS_DIR, folderName);
@@ -128,21 +121,14 @@ app.get("/playlist-progress", async (req, res) => {
                 total: total
             });
 
-            const cancionLimpia = cancion.replace(/[\/\\:*?"<>|]/g, ' ').trim();
             const comando = esSpotify
-                ? `yt-dlp -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "scsearch1:${cancionLimpia}"`
+                ? `yt-dlp -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancion}"`
                 : `yt-dlp -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "${cancion}"`;
 
             try {
                 await execPromise(comando);
             } catch (e) {
-                // SoundCloud falló, intentar YouTube
-                const comandoYT = `yt-dlp -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancionLimpia}"`;
-                try {
-                    await execPromise(comandoYT);
-                } catch (e2) {
-                    console.error(`⚠️ Error descargando: ${cancion} — ${e2.message}`);
-                }
+                console.error(`⚠️ Error descargando: ${cancion} — ${e.message}`);
             }
         }
 
@@ -150,8 +136,10 @@ app.get("/playlist-progress", async (req, res) => {
 
         const zipName = `${folderName}.zip`;
         const zipPath = path.join(DOWNLOADS_DIR, zipName);
+
         await crearZip(folderPath, zipPath);
 
+        // Limpiar carpeta temporal
         fs.rmSync(folderPath, { recursive: true, force: true });
 
         sendProgress({ status: "Completado", file: zipName });
@@ -166,8 +154,9 @@ app.get("/playlist-progress", async (req, res) => {
     }
 });
 
+// Ruta para descargar ZIP
 app.get("/get-zip", (req, res) => {
-    const fileName = path.basename(req.query.file);
+    const fileName = path.basename(req.query.file); // Seguridad: evita path traversal
     const filePath = path.join(DOWNLOADS_DIR, fileName);
 
     if (!fs.existsSync(filePath)) {
@@ -181,6 +170,7 @@ app.get("/get-zip", (req, res) => {
     });
 });
 
+// Ruta de búsqueda
 app.get("/search", async (req, res) => {
     try {
         const result = await yts(req.query.q || "");
@@ -194,8 +184,12 @@ app.get("/search", async (req, res) => {
     }
 });
 
-app.get('/ping', (req, res) => res.send('pong'));
+// Ruta de prueba
+app.get('/ping', (req, res) => {
+    res.send('pong');
+});
 
+// Puerto dinámico para Railway
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log("============================================");
