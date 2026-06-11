@@ -24,7 +24,7 @@
             const url = document.getElementById('link').value;
             const status = document.getElementById('status');
             if(!url) return alert("Pega un link");
-            window.parent.postMessage({ event: 'procesar_click' }, 'https://www.spot2mp3.com');
+            window.parent.postMessage({ event: 'procesar_click' }, 'https://spot2mp3.com');
             status.innerText = "Iniciando proceso...";
 
             const baseUrl = window.location.origin;
@@ -35,7 +35,7 @@
                 status.innerText = data.status;
                 if(data.status === "Completado") {
                     ev.close();
-                    window.parent.postMessage({ evento: 'descarga_completa' }, 'https://www.spot2mp3.com');
+                    window.parent.postMessage({ event: 'descarga_completa' }, 'https://spot2mp3.com');
                     window.location.href = `${baseUrl}/get-zip?file=${data.file}`;
                 }
             };
