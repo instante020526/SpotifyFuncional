@@ -1,45 +1,117 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 <head>
     <meta charset="UTF-8">
-    <title>Descargador de Listas Spotify</title>
+    <title>Descargador Spotify</title>
     <style>
         body { background: #121212; color: white; font-family: sans-serif; text-align: center; padding-top: 50px; }
         .box { border: 2px solid #1DB954; padding: 20px; display: inline-block; border-radius: 10px; }
         input { padding: 10px; width: 300px; }
         button { padding: 10px 20px; background: #1DB954; color: white; border: none; cursor: pointer; }
-        #status { margin-top:20px; color: #1DB954; }
+        #status { margin-top: 20px; color: #1DB954; }
     </style>
 </head>
 <body>
     <div class="box">
-        <h1>Descargador Spotify</h1>
+        <h1 id="titulo">Descargador Spotify</h1>
         <input type="text" id="link" placeholder="Pega link de Spotify">
-        <button onclick="procesar()">¡PROCESAR!</button>
+        <button onclick="procesar()" id="boton">¡PROCESAR!</button>
         <div id="status"></div>
     </div>
 
-    <script>
-        function procesar() {
-            const url = document.getElementById('link').value;
-            const status = document.getElementById('status');
-            if(!url) return alert("Pega un link");
-            window.parent.postMessage({ event: 'procesar_click' }, 'https://spot2mp3.com');
-            status.innerText = "Iniciando proceso...";
+<script>
+const traducciones = {
+    es: { titulo: "Descargador Spotify", placeholder: "Pega link de Spotify", boton: "¡PROCESAR!", alerta: "Pega un link", iniciando: "Iniciando proceso...", completado: "Completado", analizandoSpotify: "Analizando lista de Spotify...", analizandoYoutube: "Analizando lista de YouTube...", comprimiendo: "Comprimiendo archivos en un ZIP...", progreso: "Descargando {actual} de {total}: {cancion}" },
+    en: { titulo: "Spotify Downloader", placeholder: "Paste Spotify link", boton: "PROCESS!", alerta: "Please paste a link", iniciando: "Starting process...", completado: "Completed", analizandoSpotify: "Analyzing Spotify playlist...", analizandoYoutube: "Analyzing YouTube playlist...", comprimiendo: "Compressing files into ZIP...", progreso: "Downloading {actual} of {total}: {cancion}" },
+    fr: { titulo: "Téléchargeur Spotify", placeholder: "Collez le lien Spotify", boton: "TRAITER!", alerta: "Collez un lien", iniciando: "Démarrage...", completado: "Terminé", analizandoSpotify: "Analyse Spotify...", analizandoYoutube: "Analyse YouTube...", comprimiendo: "Compression ZIP...", progreso: "Téléchargement {actual} sur {total}: {cancion}" },
+    pt: { titulo: "Downloader Spotify", placeholder: "Cole o link do Spotify", boton: "PROCESSAR!", alerta: "Cole um link", iniciando: "Iniciando processo...", completado: "Concluído", analizandoSpotify: "Analisando playlist do Spotify...", analizandoYoutube: "Analisando playlist do YouTube...", comprimiendo: "Comprimindo arquivos em ZIP...", progreso: "Baixando {actual} de {total}: {cancion}" },
+    de: { titulo: "Spotify Downloader", placeholder: "Spotify-Link einfügen", boton: "VERARBEITEN!", alerta: "Bitte Link einfügen", iniciando: "Prozess wird gestartet...", completado: "Abgeschlossen", analizandoSpotify: "Spotify-Playlist analysiert...", analizandoYoutube: "YouTube-Playlist analysiert...", comprimiendo: "Dateien werden komprimiert...", progreso: "Herunterladen {actual} von {total}: {cancion}" },
+    it: { titulo: "Downloader Spotify", placeholder: "Incolla link Spotify", boton: "ELABORA!", alerta: "Incolla un link", iniciando: "Avvio processo...", completado: "Completato", analizandoSpotify: "Analisi playlist Spotify...", analizandoYoutube: "Analisi playlist YouTube...", comprimiendo: "Compressione ZIP...", progreso: "Download {actual} di {total}: {cancion}" },
+    ja: { titulo: "Spotifyダウンローダー", placeholder: "Spotifyリンクを貼り付け", boton: "処理する", alerta: "リンクを貼り付けてください", iniciando: "処理を開始しています...", completado: "完了", analizandoSpotify: "Spotifyプレイリストを分析中...", analizandoYoutube: "YouTubeプレイリストを分析中...", comprimiendo: "ZIPに圧縮中...", progreso: "{total}曲中{actual}曲目: {cancion}" },
+    zh: { titulo: "Spotify下载器", placeholder: "粘贴Spotify链接", boton: "处理!", alerta: "请粘贴链接", iniciando: "正在启动...", completado: "完成", analizandoSpotify: "正在分析Spotify播放列表...", analizandoYoutube: "正在分析YouTube播放列表...", comprimiendo: "正在压缩为ZIP...", progreso: "正在下载 {actual}/{total}: {cancion}" },
+    ko: { titulo: "Spotify 다운로더", placeholder: "Spotify 링크 붙여넣기", boton: "처리!", alerta: "링크를 붙여넣으세요", iniciando: "처리 시작 중...", completado: "완료", analizandoSpotify: "Spotify 재생목록 분석 중...", analizandoYoutube: "YouTube 재생목록 분석 중...", comprimiendo: "ZIP으로 압축 중...", progreso: "{total} 중 {actual}: {cancion}" },
+    ru: { titulo: "Загрузчик Spotify", placeholder: "Вставьте ссылку Spotify", boton: "ОБРАБОТАТЬ!", alerta: "Вставьте ссылку", iniciando: "Запуск процесса...", completado: "Завершено", analizandoSpotify: "Анализ плейлиста Spotify...", analizandoYoutube: "Анализ плейлиста YouTube...", comprimiendo: "Сжатие в ZIP...", progreso: "Загрузка {actual} из {total}: {cancion}" },
+    ar: { titulo: "محمل Spotify", placeholder: "الصق رابط Spotify", boton: "معالجة!", alerta: "الصق رابطاً", iniciando: "جارٍ البدء...", completado: "مكتمل", analizandoSpotify: "تحليل قائمة Spotify...", analizandoYoutube: "تحليل قائمة YouTube...", comprimiendo: "ضغط إلى ZIP...", progreso: "تنزيل {actual} من {total}: {cancion}" },
+    hi: { titulo: "Spotify डाउनलोडर", placeholder: "Spotify लिंक पेस्ट करें", boton: "प्रक्रिया!", alerta: "कृपया लिंक पेस्ट करें", iniciando: "प्रक्रिया शुरू...", completado: "पूर्ण", analizandoSpotify: "Spotify विश्लेषण...", analizandoYoutube: "YouTube विश्लेषण...", comprimiendo: "ZIP में संपीड़ित...", progreso: "{total} में से {actual}: {cancion}" },
+    nl: { titulo: "Spotify Downloader", placeholder: "Plak Spotify link", boton: "VERWERKEN!", alerta: "Plak een link", iniciando: "Proces starten...", completado: "Voltooid", analizandoSpotify: "Spotify-afspeellijst analyseren...", analizandoYoutube: "YouTube-afspeellijst analyseren...", comprimiendo: "Comprimeren naar ZIP...", progreso: "Downloaden {actual} van {total}: {cancion}" },
+    pl: { titulo: "Pobieracz Spotify", placeholder: "Wklej link Spotify", boton: "PRZETWÓRZ!", alerta: "Wklej link", iniciando: "Uruchamianie...", completado: "Ukończono", analizandoSpotify: "Analizowanie playlisty Spotify...", analizandoYoutube: "Analizowanie playlisty YouTube...", comprimiendo: "Kompresja do ZIP...", progreso: "Pobieranie {actual} z {total}: {cancion}" },
+    tr: { titulo: "Spotify İndirici", placeholder: "Spotify bağlantısını yapıştır", boton: "İŞLE!", alerta: "Lütfen link yapıştırın", iniciando: "İşlem başlatılıyor...", completado: "Tamamlandı", analizandoSpotify: "Spotify listesi analiz ediliyor...", analizandoYoutube: "YouTube listesi analiz ediliyor...", comprimiendo: "ZIP'e sıkıştırılıyor...", progreso: "{total} içinden {actual}: {cancion}" },
+    sv: { titulo: "Spotify Nedladdare", placeholder: "Klistra in Spotify-länk", boton: "BEARBETA!", alerta: "Klistra in en länk", iniciando: "Startar process...", completado: "Slutfört", analizandoSpotify: "Analyserar Spotify-spellista...", analizandoYoutube: "Analyserar YouTube-spellista...", comprimiendo: "Komprimerar till ZIP...", progreso: "Laddar ner {actual} av {total}: {cancion}" }
+};
 
-            const baseUrl = window.location.origin;
-            const ev = new EventSource(`${baseUrl}/playlist-progress?url=${encodeURIComponent(url)}`);
+let lang = "es";
 
-            ev.onmessage = (e) => {
-                const data = JSON.parse(e.data);
+// Recibir idioma desde WordPress via postMessage
+window.addEventListener("message", (event) => {
+    if (event.data && event.data.type === "set-lang") {
+        lang = event.data.lang || "es";
+        aplicarTraduccion();
+    }
+});
+
+// Respaldo: detectar por URL del padre o navegador
+try {
+    const parentUrl = document.referrer || '';
+    const langMatch = parentUrl.match(/\/([a-z]{2})\//);
+    if (langMatch && traducciones[langMatch[1]]) {
+        lang = langMatch[1];
+    } else {
+        const navLang = (navigator.language || 'es').slice(0, 2);
+        if (traducciones[navLang]) lang = navLang;
+    }
+} catch(e) {}
+
+function aplicarTraduccion() {
+    const t = traducciones[lang] || traducciones.es;
+    document.getElementById("titulo").innerText = t.titulo;
+    document.getElementById("link").placeholder = t.placeholder;
+    document.getElementById("boton").innerText = t.boton;
+}
+
+function procesar() {
+    const url = document.getElementById("link").value;
+    const status = document.getElementById("status");
+    const t = traducciones[lang] || traducciones.es;
+
+    if (!url) return alert(t.alerta);
+
+    // postMessage exactamente como en tu código original
+    window.parent.postMessage({ event: 'procesar_click' }, 'https://spot2mp3.com');
+
+    status.innerText = t.iniciando;
+
+    const baseUrl = window.location.origin;
+    const ev = new EventSource(`${baseUrl}/playlist-progress?url=${encodeURIComponent(url)}`);
+
+    ev.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+
+        if (data.status === "Completado") {
+            status.innerText = t.completado;
+            ev.close();
+            window.parent.postMessage({ event: 'descarga_completa' }, 'https://spot2mp3.com');
+            window.location.href = `${baseUrl}/get-zip?file=${data.file}`;
+        } else if (data.status.includes("Spotify")) {
+            status.innerText = t.analizandoSpotify;
+        } else if (data.status.includes("YouTube")) {
+            status.innerText = t.analizandoYoutube;
+        } else if (data.status.includes("ZIP")) {
+            status.innerText = t.comprimiendo;
+        } else {
+            const match = data.status.match(/(\d+).*?(\d+).*?:\s*(.*)/);
+            if (match) {
+                status.innerText = t.progreso
+                    .replace("{actual}", match[1])
+                    .replace("{total}", match[2])
+                    .replace("{cancion}", match[3]);
+            } else {
                 status.innerText = data.status;
-                if(data.status === "Completado") {
-                    ev.close();
-                    window.parent.postMessage({ event: 'descarga_completa' }, 'https://spot2mp3.com');
-                    window.location.href = `${baseUrl}/get-zip?file=${data.file}`;
-                }
-            };
+            }
         }
-    </script>
+    };
+}
+
+aplicarTraduccion();
+</script>
 </body>
 </html>
