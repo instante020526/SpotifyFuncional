@@ -100,7 +100,7 @@ app.get("/playlist-progress", async (req, res) => {
             });
         } else {
             sendProgress({ status: "Analizando lista de YouTube..." });
-            const rawIds = await execPromise(`yt-dlp --js-runtimes node --get-id --flat-playlist "${url}"`);
+            const rawIds = await execPromise(`yt-dlp --js-runtimes /usr/local/bin/node --get-id --flat-playlist "${url}"`);
             cancionesParaBuscar = rawIds.trim().split('\n')
                 .filter(Boolean)
                 .map(id => `https://www.youtube.com/watch?v=${id.trim()}`);
@@ -122,8 +122,8 @@ app.get("/playlist-progress", async (req, res) => {
             });
 
             const comando = esSpotify
-                ? `yt-dlp --js-runtimes node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancion}"`
-                : `yt-dlp --js-runtimes node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "${cancion}"`;
+                ? `yt-dlp --js-runtimes /usr/local/bin/node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancion}"`
+                : `yt-dlp --js-runtimes /usr/local/bin/node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "${cancion}"`;
 
             try {
                 await execPromise(comando);
