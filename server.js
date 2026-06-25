@@ -36,6 +36,12 @@ function execPromise(cmd) {
     });
 }
 
+// Helper: pausa aleatoria entre descargas (simula comportamiento humano)
+function pausaAleatoria(minMs, maxMs) {
+    const ms = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // Helper: crear ZIP con Promise
 function crearZip(sourceFolder, zipPath) {
     return new Promise((resolve, reject) => {
@@ -130,6 +136,11 @@ app.get("/playlist-progress", async (req, res) => {
             } catch (e) {
                 console.error(`⚠️ Error descargando: ${cancion} — ${e.message}`);
             }
+
+            // Pausa entre canciones para no parecer un bot
+            if (i < total - 1) {
+                await pausaAleatoria(2000, 5000);
+            }
         }
 
         sendProgress({ status: "Comprimiendo archivos en un ZIP..." });
@@ -198,3 +209,4 @@ app.listen(PORT, '0.0.0.0', () => {
     console.log(`🌐 URL Local: http://localhost:${PORT}/`);
     console.log("============================================");
 });
+
