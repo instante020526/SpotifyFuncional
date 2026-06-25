@@ -36,6 +36,49 @@ function execPromise(cmd) {
     });
 }
 
+// Helper: ejecutar un comando yt-dlp con cookies y, si falla por autenticación,
+// reintentar sin cookies. YouTube rota sus tokens periódicamente — cuando vuelvan
+// a aparecer errores de "Sign in to confirm", actualiza YOUTUBE_COOKIES con una
+// exportación fresca de las cookies de tu navegador (formato Netscape/cookies.txt).
+const COOKIES_FILE = '/etc/yt-dlp-cookies.txt';
+const COOKIES_FLAG = `--cookies ${COOKIES_FILE}`;
+
+function isCookieError(err) {
+    const msg = (err && err.message) ? err.message : String(err);
+    return msg.includes('Sign in to confirm') ||
+           msg.includes('bot') ||
+           msg.includes('cookies') ||
+           msg.includes('login required') ||
+           msg.includes('This video is only available');
+}
+
+async function execYtDlp(cmdWithoutCookies) {
+    const cookiesExist = fs.existsSync(COOKIES_FILE);
+
+    if (cookiesExist) {
+        // Inject --cookies flag right after "yt-dlp" in the command
+        const cmdWithCookies = cmdWithoutCookies.replace(
+            'yt-dlp ',
+            `yt-dlp ${COOKIES_FLAG} `
+        );
+        try {
+            return await execPromise(cmdWithCookies);
+        } catch (err) {
+            if (isCookieError(err)) {
+                console.warn('⚠️  Las cookies de YouTube han expirado o son inválidas. ' +
+                    'Actualiza YOUTUBE_COOKIES con una exportación fresca. ' +
+                    'Reintentando sin cookies...');
+                // Fall through to retry without cookies
+            } else {
+                throw err;
+            }
+        }
+    }
+
+    // Fallback: attempt without cookies (works for non-restricted videos)
+    return execPromise(cmdWithoutCookies);
+}
+
 // Helper: crear ZIP con Promise
 function crearZip(sourceFolder, zipPath) {
     return new Promise((resolve, reject) => {
@@ -100,7 +143,7 @@ app.get("/playlist-progress", async (req, res) => {
             });
         } else {
             sendProgress({ status: "Analizando lista de YouTube..." });
-            const rawIds = await execPromise(`yt-dlp --js-runtimes node:/usr/local/bin/node --get-id --flat-playlist "${url}"`);
+            const rawIds = await execYtDlp(`yt-dlp --js-runtimes node:/usr/local/bin/node --get-id --flat-playlist "${url}"`);
             cancionesParaBuscar = rawIds.trim().split('\n')
                 .filter(Boolean)
                 .map(id => `https://www.youtube.com/watch?v=${id.trim()}`);
@@ -126,9 +169,14 @@ app.get("/playlist-progress", async (req, res) => {
                 : `yt-dlp --js-runtimes node:/usr/local/bin/node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "${cancion}"`;
 
             try {
-                await execPromise(comando);
+                await execYtDlp(comando);
             } catch (e) {
-                console.error(`⚠️ Error descargando: ${cancion} — ${e.message}`);
+                if (isCookieError(e)) {
+                    console.error(`🔒 Error de autenticación descargando: ${cancion} — YouTube requiere cookies válidas. Actualiza YOUTUBE_COOKIES.`);
+                    sendProgress({ status: `⚠️ Omitida (requiere autenticación): ${cancion.substring(0, 40)}` });
+                } else {
+                    console.error(`⚠️ Error descargando: ${cancion} — ${e.message}`);
+                }
             }
         }
 
