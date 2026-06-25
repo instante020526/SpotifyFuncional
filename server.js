@@ -122,8 +122,8 @@ app.get("/playlist-progress", async (req, res) => {
             });
 
             const comando = esSpotify
-                ? `yt-dlp --js-runtimes /usr/local/bin/node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancion}"`
-                : `yt-dlp --js-runtimes /usr/local/bin/node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "${cancion}"`;
+                ? `yt-dlp --js-runtimes node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancion}"`
+                : `yt-dlp --js-runtimes node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "${cancion}"`;
 
             try {
                 await execPromise(comando);
