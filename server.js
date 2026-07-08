@@ -18,6 +18,13 @@ try {
 const app = express();
 app.use(cors());
 
+// Headers para que Safari cargue el iframe correctamente
+app.use((req, res, next) => {
+    res.setHeader('X-Frame-Options', 'ALLOWALL');
+    res.setHeader('Content-Security-Policy', "frame-ancestors *");
+    next();
+});
+
 // Servir archivos estáticos (HTML, CSS, etc.)
 const publicPath = path.resolve(__dirname);
 app.use(express.static(publicPath));
