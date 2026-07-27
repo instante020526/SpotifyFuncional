@@ -33,6 +33,11 @@ app.use(express.static(publicPath));
 const DOWNLOADS_DIR = path.join(publicPath, 'temp_downloads');
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
+// Cookies de YouTube desde variable de entorno
+const YOUTUBE_COOKIES = process.env.YOUTUBE_COOKIES || '';
+if (YOUTUBE_COOKIES) fs.writeFileSync('cookies.txt', YOUTUBE_COOKIES);
+const COOKIE_FLAG = fs.existsSync('cookies.txt') ? '--cookies cookies.txt' : '';
+
 // Helper: ejecutar comando externo con Promise (evita bloquear el event loop)
 function execPromise(cmd) {
     return new Promise((resolve, reject) => {
@@ -113,7 +118,7 @@ app.get("/playlist-progress", async (req, res) => {
             });
         } else {
             sendProgress({ status: "Analizando lista de YouTube..." });
-            const rawIds = await execPromise(`yt-dlp --js-runtimes node:/usr/local/bin/node --get-id --flat-playlist "${url}"`);
+            const rawIds = await execPromise(`yt-dlp ${COOKIE_FLAG} --js-runtimes node:/usr/local/bin/node --get-id --flat-playlist "${url}"`);
             cancionesParaBuscar = rawIds.trim().split('\n')
                 .filter(Boolean)
                 .map(id => `https://www.youtube.com/watch?v=${id.trim()}`);
@@ -135,8 +140,8 @@ app.get("/playlist-progress", async (req, res) => {
             });
 
             const comando = esSpotify
-                ? `yt-dlp --js-runtimes node:/usr/local/bin/node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancion}"`
-                : `yt-dlp --js-runtimes node:/usr/local/bin/node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "${cancion}"`;
+                ? `yt-dlp ${COOKIE_FLAG} --js-runtimes node:/usr/local/bin/node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "ytsearch1:${cancion}"`
+                : `yt-dlp ${COOKIE_FLAG} --js-runtimes node:/usr/local/bin/node -x --audio-format mp3 --no-playlist -o "${folderPath}/%(title)s.%(ext)s" "${cancion}"`;
 
             try {
                 await execPromise(comando);
