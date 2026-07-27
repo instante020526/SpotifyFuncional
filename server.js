@@ -33,9 +33,13 @@ app.use(express.static(publicPath));
 const DOWNLOADS_DIR = path.join(publicPath, 'temp_downloads');
 if (!fs.existsSync(DOWNLOADS_DIR)) fs.mkdirSync(DOWNLOADS_DIR, { recursive: true });
 
-// Cookies de YouTube desde variable de entorno
-const YOUTUBE_COOKIES = process.env.YOUTUBE_COOKIES || '';
-if (YOUTUBE_COOKIES) fs.writeFileSync('cookies.txt', YOUTUBE_COOKIES);
+// Cookies de YouTube desde variable de entorno (base64)
+const YOUTUBE_COOKIES_B64 = process.env.YOUTUBE_COOKIES_B64 || '';
+if (YOUTUBE_COOKIES_B64) {
+    let data = Buffer.from(YOUTUBE_COOKIES_B64, 'base64').toString('utf8');
+    if (data.charCodeAt(0) === 0xFEFF || data.charCodeAt(0) === 0xFFFE) data = data.slice(1);
+    fs.writeFileSync('cookies.txt', data);
+}
 const COOKIE_FLAG = fs.existsSync('cookies.txt') ? '--cookies cookies.txt' : '';
 
 // Helper: ejecutar comando externo con Promise (evita bloquear el event loop)
@@ -215,8 +219,8 @@ app.get('/ping', (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, '0.0.0.0', () => {
     console.log("============================================");
-    console.log("SERVIDOR MULTIMEDIA INICIADO");
-    console.log(`Carpeta: ${publicPath}`);
-    console.log(`URL Local: http://localhost:${PORT}/`);
+    console.log("✅ SERVIDOR MULTIMEDIA INICIADO");
+    console.log(`📂 Carpeta: ${publicPath}`);
+    console.log(`🌐 URL Local: http://localhost:${PORT}/`);
     console.log("============================================");
 });
